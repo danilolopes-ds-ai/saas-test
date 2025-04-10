@@ -1,0 +1,81 @@
+# Configuração do LocalAI para o SaaS de Saúde e Bem-estar
+
+# Modelos
+models:
+  # LLM Principal - modelo leve e eficiente
+  - name: phi-3-mini
+    description: "Modelo Microsoft Phi-3 mini otimizado para hardware disponível"
+    # Caminho para o modelo GGUF (será baixado via script)
+    path: /models/phi-3-mini-4k-instruct.Q4_K_M.gguf
+    # Parâmetros padrão otimizados para ambiente de produção
+    parameters:
+      temperature: 0.7
+      top_p: 0.9
+      max_tokens: 512
+      context_size: 4096
+      stop:
+        - "</s>"
+        - "<|im_end|>"
+    # Template de prompt com formato correto para o modelo
+    template: |
+      <|system|>
+      {{.System}}
+      <|user|>
+      {{.Prompt}}
+      <|assistant|>
+    # Prompt de sistema padrão (customizável por tenant)
+    system: "Você é um assistente IA para um sistema de agendamento e gerenciamento para profissionais de saúde e bem-estar. Seu objetivo é ser útil, claro e conciso em suas respostas."
+    # Fornecer interface compatível com OpenAI para facilitar migração
+    openai_api_compat: true
+
+  # Modelo otimizado para resumo de texto 
+  - name: gpt4all-falcon
+    path: /models/gpt4all-falcon-q4_0.gguf
+    parameters:
+      temperature: 0.7
+      top_p: 0.95
+      max_tokens: 500
+    template: |
+      ### System:
+      {{.System}}
+      
+      ### User:
+      {{.Prompt}}
+      
+      ### Assistant:
+    system: "Você é um assistente especializado em resumir informações médicas e de bem-estar de forma clara e concisa."
+
+# Embeddings para sistemas de RAG (FAQ, documentos)
+embeddings:
+  - name: all-minilm
+    path: /models/all-MiniLM-L6-v2.gguf
+    dimensions: 384
+
+# Configurações do servidor
+server:
+  # Tempo limite para respostas da API
+  timeout: 120s
+  # Estratégia de concorrência
+  threads: 4
+  # Endpoints adicionais para diagnóstico
+  debug: true
+  # Prefixo da API
+  api_prefix: v1
+  # Configurações de logging
+  log_level: info
+  # Configurações de CORS
+  cors:
+    allowed_origins:
+      - "http://localhost:3000"
+    allowed_methods:
+      - "GET"
+      - "POST"
+
+# Configurações de cache
+cache:
+  enabled: true
+  # Guardar respostas em cache para economia de processamento
+  # em prompts frequentes
+  store: redis
+  redis:
+    url: redis://redis:6379/1

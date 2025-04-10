@@ -1,0 +1,151 @@
+# docker-compose.yml para SaaS Multi-Nicho
+version: '3.8'
+
+# Rede compartilhada para todos os serviços
+networks:
+  saas-network:
+    name: saas-network
+    driver: bridge
+
+# Volumes persistentes
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_data:
+  localai_models:
+
+services:
+  # API Backend
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: saas-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+      - /app/.pytest_cache
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/saas
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=http://localhost:3000
+      - SECRET_KEY=${SECRET_KEY:-dev_secret_key_change_in_production}
+      - LOCAL_AI_URL=http://local-ai:8080
+    depends_on:
+      - db
+      - redis
+    networks:
+      - saas-network
+    restart: unless-stopped
+    # Comando de desenvolvimento com hot reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend React/Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: saas-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    networks:
+      - saas-network
+    restart: unless-stopped
+    # Comando de desenvolvimento com hot reload
+
+  # Banco de dados PostgreSQL
+  db:
+    image: postgres:14-alpine
+    container_name: saas-postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=saas
+    networks:
+      - saas-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Redis para cache e filas
+  redis:
+    image: redis:alpine
+    container_name: saas-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - saas-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+
+  # LocalAI para IA local
+  local-ai:
+    image: localai/localai:latest
+    container_name: saas-localai
+    volumes:
+      - localai_models:/models
+      - ./infrastructure/localai/config.yaml:/config.yaml
+    ports:
+      - "8080:8080"
+    environment:
+      - MODELS_PATH=/models
+      - CONFIG_PATH=/config.yaml
+      - THREADS=4
+      - CONTEXT_SIZE=4096
+    networks:
+      - saas-network
+    restart: unless-stopped
+    # Utiliza menos recursos até ser necessário
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # N8n para automação
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: saas-n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-admin}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-dev_key_change_in_production}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=development
+      - WEBHOOK_URL=http://localhost:5678/
+      - EXECUTIONS_PROCESS=main
+    networks:
+      - saas-network
+    restart: unless-stopped

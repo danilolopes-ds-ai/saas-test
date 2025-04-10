@@ -1,0 +1,22 @@
+# Dockerfile para ambiente de desenvolvimento - Frontend
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Instalar dependências necessárias
+RUN apk add --no-cache libc6-compat
+
+# Copiar arquivos de configuração
+COPY package.json package-lock.json* ./
+
+# Instalar dependências 
+RUN npm ci
+
+# Copiar código do projeto
+COPY . .
+
+# Expor porta da aplicação
+EXPOSE 3000
+
+# Comando para desenvolvimento com hot reload
+CMD ["npm", "run", "dev"]
